@@ -14,7 +14,6 @@ void SearchServer::RemoveDocument(int document_id) {
     RemoveDocument(std::execution::seq,document_id);
 }
 
-
 std::vector<Document> SearchServer::FindTopDocuments(std::string_view raw_query, DocumentStatus status) const {
     return FindTopDocuments(std::execution::seq, raw_query, status);
 }
@@ -75,7 +74,6 @@ std::vector<std::string_view> SearchServer::SplitIntoWordsNoStop(std::string_vie
         }
 
         if (!IsStopWord(word)){
-
             words.push_back(word);
         }
     }
@@ -83,16 +81,11 @@ std::vector<std::string_view> SearchServer::SplitIntoWordsNoStop(std::string_vie
 }
 
 int SearchServer::ComputeAverageRating(const std::vector<int> &ratings) {
-
     if (ratings.empty()){
         return 0;
     }
 
-    int rating_sum = 0;
-    for (const int rating : ratings){
-
-        rating_sum += rating;
-    }
+    int rating_sum = std::accumulate(ratings.begin(), ratings.end(), 0);
     return rating_sum / static_cast<int>(ratings.size());
 }
 

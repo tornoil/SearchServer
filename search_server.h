@@ -12,7 +12,9 @@
 #include <string_view>
 #include <vector>
 #include <execution>
+#include <atomic>
 
+const double EPSILON = 1e-6;
 const int MAX_RESULT_DOCUMENT_COUNT = 5;
 const int NUM_BASKET = 12;
 class SearchServer {
@@ -102,17 +104,9 @@ template< class ExecutionPolicy>
 void SearchServer::RemoveDocument(ExecutionPolicy&& policy, int document_id) {
     std::map<std::string_view, double> word_freq = GetWordFrequencies(document_id);
     std::vector<std::pair<std::string_view, double>> word_freq_vec(word_freq.begin(),word_freq.end());
-    for_each(policy, word_freq_vec.begin(), word_freq_vec.end(), [this, document_id](auto& pair) {
-       
+    for_each(policy, word_freq_vec.begin(), word_freq_vec.end(), [this, document_id](auto& pair) {      
             word_to_document_freqs_.find(pair.first)->second.erase(document_id);
     });
-
-     //std::for_each(policy, word_to_document_freqs_.begin(), word_to_document_freqs_.end(), [&document_id](auto& map_pair) {
-     //    std::map<int, double>::iterator it = map_pair.second.find(document_id);
-     //    if (it != map_pair.second.end()) {
-     //        map_pair.second.erase(it);
-     //    }
-     //    });
 
     auto remove_it = find(policy, document_ids_.begin(), document_ids_.end(), document_id);
     if (remove_it != document_ids_.end()) {
@@ -131,7 +125,7 @@ std::vector<Document> SearchServer::FindTopDocuments(ExecutionPolicy&& policy, s
     auto matched_documents = FindAllDocuments(policy, query, document_predicate);
 
     sort(policy, matched_documents.begin(), matched_documents.end(), [](const Document& lhs, const Document& rhs) {
-        if (std::abs(lhs.relevance - rhs.relevance) < 1e-6) {
+        if (std::abs(lhs.relevance - rhs.relevance) < EPSILON) {
             return lhs.rating > rhs.rating;
         } else {
             return lhs.relevance > rhs.relevance;
@@ -175,11 +169,12 @@ std::tuple<std::vector<std::string_view>, DocumentStatus> SearchServer::MatchDoc
     }
 
     std::vector<std::string_view> plus_words(query.plus_words.begin(), query.plus_words.end());
-    for_each(policy, plus_words.begin(), plus_words.end(), [&word_freq, &matched_words](const std::string_view& word) {
-        if (word_freq.count(word) > 0) {
-            matched_words.push_back(word);
-        }
-    });
+    matched_words = CopyIfUnordered(policy, plus_words, [&word_freq](const std::string_view& word){ return word_freq.count(word) > 0; });
+    // for_each(policy, plus_words.begin(), plus_words.end(), [&word_freq, &matched_words](const std::string_view& word) {
+    //     if (word_freq.count(word) > 0) {
+    //         matched_words.push_back(word);
+    //     }
+    // });
 
     return { matched_words, documents_.at(document_id).status };
 }
@@ -216,4 +211,21 @@ std::vector<Document> SearchServer::FindAllDocuments(ExecutionPolicy&& policy, Q
         matched_documents.push_back({document_id, relevance, documents_.at(document_id).rating});
     }
     return matched_documents;
+}
+
+template <class ExecutionPolicy, typename Container, typename Predicate>
+std::vector<typename Container::value_type> CopyIfUnordered(ExecutionPolicy&& policy, const Container& container, Predicate predicate) {
+    std::vector<typename Container::value_type> result(container.size());
+    std::atomic_int size = 0;
+    for_each(
+            policy,
+            container.begin(), container.end(),
+            [predicate, &size, &result](const auto& value) {
+                if (predicate(value)) {
+                    result[size++] = value;
+                }
+            }
+    );
+    result.resize(size);
+    return result;
 }
